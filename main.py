@@ -3,7 +3,7 @@ import streamlit as st
 import altair as alt
 
 # Configurar a página
-st.set_page_config(page_title="Dashboard Financeiro", layout="centered")
+st.set_page_config(page_title="Dashboard Financeiro", layout="wide", page_icon="💰")
 
 # Carregar os dados do CSV (substitua pelo caminho correto ou upload do arquivo)
 dados = pd.read_csv('Extrato.csv', skiprows=4, sep=';')
@@ -15,94 +15,113 @@ dados['Valor'] = pd.to_numeric(dados['Valor'], errors='coerce')
 dados['Data Lançamento'] = pd.to_datetime(dados['Data Lançamento'], format='%d/%m/%Y', errors='coerce')
 dados = dados.dropna(subset=['Data Lançamento'])
 dados['Saldo'] = dados['Valor'].cumsum()
-dados['ano_mes'] = dados['Data Lançamento'].dt.strftime('%Y-%m')
+dados['ano_mes'] = dados['Data Lançamento'].dt.to_period('M').dt.to_timestamp()
 
 # Calcular métricas
-data_atual = pd.to_datetime('today')
-dados_hoje = dados[dados['Data Lançamento'] <= data_atual]
+data_atual = pd.Timestamp.now()
 saldo_final = dados['Saldo'].iloc[-1] if not dados.empty else 0
 entradas_mes = dados[dados['Valor'] > 0].groupby('ano_mes')['Valor'].sum()
 saidas_mes = dados[dados['Valor'] < 0].groupby('ano_mes')['Valor'].sum()
 
 # Layout do dashboard
-st.title("Dashboard Financeiro")
+st.title("💰 Dashboard Financeiro")
+st.markdown("Uma visão completa das suas finanças com dados atualizados.")
+st.markdown("---")
 
+# Cards de resumo
+st.markdown("### Resumo Geral")
 col1, col2, col3 = st.columns(3)
 
-# Card de saldo final
 with col1:
-    st.markdown(f"""
-    <div style="background-color: #2ecc71; color: white; padding: 15px; border-radius: 20px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); text-align: center; width: 230px; height: 150px;">
-        <h3>Saldo Final</h3>
-        <p style="font-size: 18px;">R${saldo_final:,.2f}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.metric("Saldo Final", f"R${saldo_final:,.2f}", help="Saldo acumulado até o momento.")
 
-# Card de total de entradas
 with col2:
-    st.markdown(f"""
-    <div style="background-color: #3498db; color: white; padding: 10px; border-radius: 20px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); text-align: center; width: 230px; height: 150px;">
-        <h3>Total de Entradas</h3>
-        <p style="font-size: 18px;">R${entradas_mes.sum():,.2f}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.metric("Total de Entradas", f"R${entradas_mes.sum():,.2f}", help="Soma total das entradas registradas.")
 
-# Card de total de saídas
 with col3:
-    st.markdown(f"""
-    <div style="background-color: #e74c3c; color: white; padding: 15px; border-radius: 20px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); text-align: center; width: 230px; height: 150px;">
-        <h3>Total de Saídas</h3>
-        <p style="font-size: 18px;">R${saidas_mes.sum():,.2f}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.metric("Total de Saídas", f"R${saidas_mes.sum():,.2f}", help="Soma total das saídas registradas.")
 
-# Gráficos
-st.subheader("Análise Mês a Mês")
+st.markdown("---")
 
+# Filtro de datas
+st.markdown("### Filtros")
+data_min = dados['Data Lançamento'].min()
+data_max = dados['Data Lançamento'].max()
+
+intervalo_datas = st.date_input("Selecione o intervalo de datas:", [data_min, data_max], min_value=data_min, max_value=data_max)
+
+if intervalo_datas and len(intervalo_datas) == 2:
+    data_inicio = pd.Timestamp(intervalo_datas[0])
+    data_fim = pd.Timestamp(intervalo_datas[1])
+    dados_filtrados = dados[(dados['Data Lançamento'] >= data_inicio) & (dados['Data Lançamento'] <= data_fim)]
+else:
+    dados_filtrados = dados
+
+# Gráficos de entradas e saídas
+st.markdown("### Análise Mês a Mês")
 col1, col2 = st.columns(2)
 
-# Gráfico de entradas
+entradas_filtradas = dados_filtrados[dados_filtrados['Valor'] > 0].groupby('ano_mes')['Valor'].sum()
+saidas_filtradas = dados_filtrados[dados_filtrados['Valor'] < 0].groupby('ano_mes')['Valor'].sum()
+
 with col1:
-    st.markdown("### Entradas por Mês")
-    entradas_chart = alt.Chart(entradas_mes.reset_index()).mark_bar(color='green').encode(
+    st.markdown("#### Entradas por Mês")
+    entradas_chart = alt.Chart(entradas_filtradas.reset_index()).mark_bar(color='#2ecc71').encode(
         x=alt.X('ano_mes:T', title='Mês'),
         y=alt.Y('Valor:Q', title='Entradas')
-    ).properties(width=400, height=300)
+    ).properties(height=300)
     st.altair_chart(entradas_chart, use_container_width=True)
 
-# Gráfico de saídas
 with col2:
-    st.markdown("### Saídas por Mês")
-    saidas_chart = alt.Chart(saidas_mes.reset_index()).mark_bar(color='red').encode(
+    st.markdown("#### Saídas por Mês")
+    saidas_chart = alt.Chart(saidas_filtradas.reset_index()).mark_bar(color='#e74c3c').encode(
         x=alt.X('ano_mes:T', title='Mês'),
         y=alt.Y('Valor:Q', title='Saídas')
-    ).properties(width=400, height=300)
+    ).properties(height=300)
     st.altair_chart(saidas_chart, use_container_width=True)
 
-# Saldo acumulado por mês
-st.subheader("Evolução do Saldo Acumulado por Mês")
-saldo_mes = dados.groupby('ano_mes')['Saldo'].max().reset_index()  # Agora é por mês
+st.markdown("---")
 
-saldo_chart = alt.Chart(saldo_mes).mark_area(opacity=0.3, color="#9b59b6").encode(
+# Gráfico de saldo acumulado
+st.markdown("### Evolução do Saldo Acumulado")
+saldo_mes = dados_filtrados.groupby('ano_mes')['Saldo'].max().reset_index()
+
+saldo_chart = alt.Chart(saldo_mes).mark_area(opacity=0.3, color="#3498db").encode(
     x=alt.X('ano_mes:T', title='Mês'),
     y=alt.Y('Saldo:Q', title='Saldo Acumulado')
-).properties(width=800, height=400)
+).properties(height=400)
 
 st.altair_chart(saldo_chart, use_container_width=True)
 
-# Análise por Histórico (Exemplo)
-st.subheader("Análise por Histórico")
-if 'Histórico' in dados.columns:
-    historico = dados.groupby('Histórico')['Valor'].sum().reset_index()
+# Análise por Histórico (se aplicável)
+if 'Histórico' in dados_filtrados.columns:
+    st.markdown("### Análise por Histórico")
+    historico = dados_filtrados.groupby('Histórico')['Valor'].sum().reset_index()
     historico_chart = alt.Chart(historico).mark_bar().encode(
         x=alt.X('Valor:Q', title='Total por Histórico'),
         y=alt.Y('Histórico:N', title='Histórico', sort='-x'),
         color=alt.Color('Histórico:N', legend=None)
-    ).properties(width=800, height=400)
+    ).properties(height=400)
     st.altair_chart(historico_chart, use_container_width=True)
-else:
-    st.warning("Os dados não possuem a coluna 'Histórico' para análise por histórico.")
 
-# Detalhes dos dados
-st.write("### Detalhes dos Dados")
-st.dataframe(dados)
+# Mostrar detalhes dos dados
+st.markdown("---")
+st.markdown("### Detalhes dos Dados")
+st.dataframe(dados_filtrados)
+
+# Observação sobre melhorias
+st.markdown(
+    """
+    <style>
+        div[data-testid="metric-container"] {
+            background-color: rgba(0, 0, 0, 0.05);
+            border: 1px solid #CCC;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
